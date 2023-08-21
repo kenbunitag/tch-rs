@@ -7,6 +7,9 @@
 // like 9.0, 90, or cu90 to specify the version of CUDA to use for libtorch.
 
 use anyhow::{Context, Result};
+
+use std::ffi::OsStr;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
@@ -48,6 +51,8 @@ enum Os {
     Linux,
     Macos,
     Windows,
+    Ios,
+    Android,
 }
 
 #[allow(dead_code)]
@@ -68,10 +73,31 @@ fn download<P: AsRef<Path>>(source_url: &str, target_file: P) -> anyhow::Result<
     let response = ureq::get(source_url).call()?;
     let response_code = response.status();
     if response_code != 200 {
-        anyhow::bail!("Unexpected response code {} for {}", response_code, source_url)
+        anyhow::bail!("Unexpected response code {} for {}", response_code.to_string(), source_url)
     }
     let mut reader = response.into_reader();
     std::io::copy(&mut reader, &mut writer)?;
+    Ok(())
+}
+
+#[cfg(feature = "mobile")]
+fn download_from_nexus<P: AsRef<Path>>(source_url: &str, target_file: P) -> anyhow::Result<()> {
+    use base64::engine::general_purpose;
+    use base64::Engine;
+
+    dbg!("Start Mobile download from Nexus");
+
+    let f = fs::File::create(&target_file)?;
+    let mut writer = io::BufWriter::new(f);
+    let auth = String::from("Basic ") + &general_purpose::STANDARD.encode("anon:anon");
+    let response = ureq::get(source_url).set("Authorization", &auth).call()?;
+    let response_code = response.status();
+    if response_code != 200 {
+        anyhow::bail!("Unexpected response code {} for {}", response_code.to_string(), source_url)
+    }
+    let mut reader = response.into_reader();
+    std::io::copy(&mut reader, &mut writer)?;
+    dbg!("End download");
     Ok(())
 }
 
@@ -102,7 +128,7 @@ fn get_pypi_wheel_url_for_aarch64_macosx() -> anyhow::Result<String> {
     let response = ureq::get(pypi_url.as_str()).call()?;
     let response_code = response.status();
     if response_code != 200 {
-        anyhow::bail!("Unexpected response code {} for {}", response_code, pypi_url)
+        anyhow::bail!("Unexpected response code {} for {}", response_code.to_string(), pypi_url)
     }
     let pypi_package: PyPiPackage = response.into_json()?;
     let urls = pypi_package.urls;
@@ -159,13 +185,15 @@ impl SystemInfo {
             "linux" => Os::Linux,
             "windows" => Os::Windows,
             "macos" => Os::Macos,
+            "ios" => Os::Ios,
+            "android" => Os::Android,
             os => anyhow::bail!("unsupported TARGET_OS '{os}'"),
         };
         // Locate the currently active Python binary, similar to:
         // https://github.com/PyO3/maturin/blob/243b8ec91d07113f97a6fe74d9b2dcb88086e0eb/src/target.rs#L547
         let python_interpreter = match os {
             Os::Windows => PathBuf::from("python.exe"),
-            Os::Linux | Os::Macos => {
+            Os::Linux | Os::Ios | Os::Macos | Os::Android => {
                 if env::var_os("VIRTUAL_ENV").is_some() {
                     PathBuf::from("python")
                 } else {
@@ -221,7 +249,10 @@ impl SystemInfo {
                 None => anyhow::bail!("no cxx11 abi returned by python {output:?}"),
             }
         } else {
-            let libtorch = Self::prepare_libtorch_dir(os)?;
+            let libtorch = match cfg!(feature = "mobile") {
+                true => Self::prepare_pytmobile_dir(os)?,
+                false => Self::prepare_libtorch_dir(os)?,
+            };
             let includes = env_var_rerun("LIBTORCH_INCLUDE")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| libtorch.clone());
@@ -234,9 +265,12 @@ impl SystemInfo {
             env_var_rerun("LIBTORCH_CXX11_ABI").unwrap_or_else(|_| "1".to_owned())
         };
         let libtorch_lib_dir = libtorch_lib_dir.expect("no libtorch lib dir found");
-        let link_type = match env_var_rerun("LIBTORCH_STATIC").as_deref() {
-            Err(_) | Ok("0") | Ok("false") | Ok("FALSE") => LinkType::Dynamic,
-            Ok(_) => LinkType::Static,
+        let link_type = match cfg!(feature = "mobile") {
+            true => LinkType::Static,
+            false => match env_var_rerun("LIBTORCH_STATIC").as_deref() {
+                Err(_) | Ok("0") | Ok("false") | Ok("FALSE") => LinkType::Dynamic,
+                Ok(_) => LinkType::Static,
+            },
         };
         Ok(Self {
             os,
@@ -253,6 +287,53 @@ impl SystemInfo {
             Os::Linux => Path::new("/usr/lib/libtorch.so").exists().then(|| PathBuf::from("/usr")),
             _ => None,
         }
+    }
+
+    #[cfg(not(feature = "mobile"))]
+    fn prepare_pytmobile_dir(_os: Os) -> Result<PathBuf> {
+        anyhow::bail!("Can not prepare pytmobile-dir without mobile feature");
+    }
+
+    #[cfg(feature = "mobile")]
+    fn prepare_pytmobile_dir(_os: Os) -> Result<PathBuf> {
+        use std::env::var;
+        let out_dir = var("OUT_DIR").unwrap();
+        let target_os = var("CARGO_CFG_TARGET_OS").unwrap();
+        let target_arch = var("CARGO_CFG_TARGET_ARCH").unwrap();
+        let target_env = var("CARGO_CFG_TARGET_ENV").unwrap();
+        dbg!("target_os={}", &target_os);
+        dbg!("target_arch={}", &target_arch);
+        dbg!("target_env={}", &target_env);
+        dbg!("OutDir={}", &out_dir);
+
+        //let downloaddir = format!("{}/pytmobile/install", std::env::current_dir().unwrap().display());
+        let downloaddir = format!("{}/pytmobile", out_dir);
+        dbg!("downloaddir={}", &downloaddir);
+
+        dbg!("{}", Path::new(&downloaddir).exists());
+        let version = "2.0.1";
+        let downloadfile = format!("pytmobile-{}-{}-{}.zip", &version, &target_os, &target_arch);
+        let downloadurl = format!(
+            "https://nexus.kenbun.de/repository/pytmobile-raw/{}/{}",
+            &version, &downloadfile
+        );
+        let downloadpath = format!("{}/{}", out_dir, downloadfile);
+
+        dbg!("downloadurl={}", &downloadurl);
+
+        if let Err(err) = download_from_nexus(&downloadurl, &downloadpath) {
+            eprintln!("ERROR: {}", err);
+            err.chain().skip(1).for_each(|cause| eprintln!("because: {}", cause));
+            std::process::exit(1);
+        }
+
+        if let Err(err) = extract(&downloadpath, &downloaddir) {
+            eprintln!("ERROR: {}", err);
+            err.chain().skip(1).for_each(|cause| eprintln!("because: {}", cause));
+            std::process::exit(1);
+        }
+        let installdir = format!("{}/install", downloaddir);
+        Ok(PathBuf::from(installdir))
     }
 
     fn prepare_libtorch_dir(os: Os) -> Result<PathBuf> {
@@ -291,6 +372,8 @@ impl SystemInfo {
             if !libtorch_dir.exists() {
                 fs::create_dir(&libtorch_dir).unwrap_or_default();
                 let libtorch_url = match os {
+                    Os::Ios => panic!("Can not download pytorch for ios - does not exists"),
+                    Os::Android => panic!("Can not download pytorch for Android - does not exists"),
                 Os::Linux => format!(
                     "https://download.pytorch.org/libtorch/{}/libtorch-cxx11-abi-shared-with-deps-{}{}.zip",
                     device, TORCH_VERSION, match device.as_ref() {
@@ -361,7 +444,24 @@ impl SystemInfo {
         }
 
         match self.os {
-            Os::Linux | Os::Macos => {
+            Os::Ios => {
+                // Pass the libtorch lib dir to crates that use torch-sys. This will be available
+                // as DEP_TORCH_SYS_LIBTORCH_LIB, see:
+                // https://doc.rust-lang.org/cargo/reference/build-scripts.html#the-links-manifest-key
+                println!("cargo:libtorch_lib={}", self.libtorch_lib_dir.display());
+                cc::Build::new()
+                    .cpp(true)
+                    .pic(true)
+                    .warnings(false)
+                    .includes(&self.libtorch_include_dirs)
+                    .flag("-mios-version-min=10.0")
+                    .flag(&format!("-Wl,-rpath={}", self.libtorch_lib_dir.display()))
+                    .flag("-std=c++14")
+                    .flag(&format!("-D_GLIBCXX_USE_CXX11_ABI={}", self.cxx11_abi))
+                    .files(&c_files)
+                    .compile("tch");
+            }
+            Os::Linux | Os::Macos | Os::Android => {
                 // Pass the libtorch lib dir to crates that use torch-sys. This will be available
                 // as DEP_TORCH_SYS_LIBTORCH_LIB, see:
                 // https://doc.rust-lang.org/cargo/reference/build-scripts.html#the-links-manifest-key
@@ -397,7 +497,10 @@ impl SystemInfo {
             LinkType::Dynamic => println!("cargo:rustc-link-lib={lib_name}"),
             LinkType::Static => {
                 // TODO: whole-archive might only be necessary for libtorch_cpu?
-                println!("cargo:rustc-link-lib=static:+whole-archive,-bundle={lib_name}")
+                let lib_name_stripped =
+                    lib_name.strip_suffix(".a").unwrap().strip_prefix("lib").unwrap();
+                dbg!("Linking with {}", lib_name_stripped.to_string());
+                println!("cargo:rustc-link-lib=static:+whole-archive,-bundle={lib_name_stripped}")
             }
         }
     }
@@ -405,89 +508,106 @@ impl SystemInfo {
 
 fn main() -> anyhow::Result<()> {
     if !cfg!(feature = "doc-only") {
-        let system_info = SystemInfo::new()?;
-        // use_cuda is a hacky way to detect whether cuda is available and
-        // if it's the case link to it by explicitly depending on a symbol
-        // from the torch_cuda library.
-        // It would be better to use -Wl,--no-as-needed but there is no way
-        // to specify arbitrary linker flags at the moment.
-        //
-        // Once https://github.com/rust-lang/cargo/pull/8441 is available
-        // we should switch to using rustc-link-arg instead e.g. with the
-        // following flags:
-        //   -Wl,--no-as-needed -Wl,--copy-dt-needed-entries -ltorch
-        //
-        // This will be available starting from cargo 1.50 but will be a nightly
-        // only option to start with.
-        // https://github.com/rust-lang/cargo/blob/master/CHANGELOG.md
-        //
-        // Update: The above doesn't seem to propagate to the downstream binaries
-        // so doesn't really help, the comment has been kept though to keep track
-        // if this issue.
-        // TODO: Try out the as-needed native link modifier when it lands.
-        // https://github.com/rust-lang/rust/issues/99424
-        let si_lib = &system_info.libtorch_lib_dir;
-        let use_cuda =
-            si_lib.join("libtorch_cuda.so").exists() || si_lib.join("torch_cuda.dll").exists();
-        let use_cuda_cu = si_lib.join("libtorch_cuda_cu.so").exists()
-            || si_lib.join("torch_cuda_cu.dll").exists();
-        let use_cuda_cpp = si_lib.join("libtorch_cuda_cpp.so").exists()
-            || si_lib.join("torch_cuda_cpp.dll").exists();
-        let use_hip =
-            si_lib.join("libtorch_hip.so").exists() || si_lib.join("torch_hip.dll").exists();
-        println!("cargo:rustc-link-search=native={}", si_lib.display());
+        if cfg!(feature = "mobile") {
+            let system_info = SystemInfo::new()?;
+            let si_lib = &system_info.libtorch_lib_dir;
+            println!("cargo:rustc-link-search=native={}", si_lib.display());
 
-        system_info.make(use_cuda, use_hip);
+            system_info.make(false, false);
+            println!("cargo:rustc-link-lib=static=tch");
 
-        println!("cargo:rustc-link-lib=static=tch");
-        if use_cuda {
-            system_info.link("torch_cuda")
-        }
-        if use_cuda_cu {
-            system_info.link("torch_cuda_cu")
-        }
-        if use_cuda_cpp {
-            system_info.link("torch_cuda_cpp")
-        }
-        if use_hip {
-            system_info.link("torch_hip")
-        }
-        if cfg!(feature = "python-extension") {
-            system_info.link("torch_python")
-        }
-        if system_info.link_type == LinkType::Static {
-            // TODO: this has only be tried out on the cpu version. Check that it works
-            // with cuda too and maybe just try linking all available files?
-            system_info.link("asmjit");
-            system_info.link("clog");
-            system_info.link("cpuinfo");
-            system_info.link("dnnl");
-            system_info.link("dnnl_graph");
-            system_info.link("fbgemm");
-            system_info.link("gloo");
-            system_info.link("kineto");
-            system_info.link("nnpack");
-            system_info.link("onnx");
-            system_info.link("onnx_proto");
-            system_info.link("protobuf");
-            system_info.link("pthreadpool");
-            system_info.link("pytorch_qnnpack");
-            system_info.link("sleef");
-            system_info.link("tensorpipe");
-            system_info.link("tensorpipe_uv");
-            system_info.link("XNNPACK");
-        }
-        system_info.link("torch_cpu");
-        system_info.link("torch");
-        system_info.link("c10");
-        if use_hip {
-            system_info.link("c10_hip");
-        }
+            let files = fs::read_dir(si_lib).unwrap();
+            files
+                .filter_map(Result::ok)
+                .filter(|d| d.path().extension() == Some(OsStr::from_bytes(b"a")))
+                .for_each(|f| system_info.link(f.file_name().to_str().unwrap()));
 
-        let target = env::var("TARGET").context("TARGET variable not set")?;
+            //dbg!("files={}", files);
+        } else {
+            let system_info = SystemInfo::new()?;
+            // use_cuda is a hacky way to detect whether cuda is available and
+            // if it's the case link to it by explicitly depending on a symbol
+            // from the torch_cuda library.
+            // It would be better to use -Wl,--no-as-needed but there is no way
+            // to specify arbitrary linker flags at the moment.
+            //
+            // Once https://github.com/rust-lang/cargo/pull/8441 is available
+            // we should switch to using rustc-link-arg instead e.g. with the
+            // following flags:
+            //   -Wl,--no-as-needed -Wl,--copy-dt-needed-entries -ltorch
+            //
+            // This will be available starting from cargo 1.50 but will be a nightly
+            // only option to start with.
+            // https://github.com/rust-lang/cargo/blob/master/CHANGELOG.md
+            //
+            // Update: The above doesn't seem to propagate to the downstream binaries
+            // so doesn't really help, the comment has been kept though to keep track
+            // if this issue.
+            // TODO: Try out the as-needed native link modifier when it lands.
+            // https://github.com/rust-lang/rust/issues/99424
+            let si_lib = &system_info.libtorch_lib_dir;
+            let use_cuda =
+                si_lib.join("libtorch_cuda.so").exists() || si_lib.join("torch_cuda.dll").exists();
+            let use_cuda_cu = si_lib.join("libtorch_cuda_cu.so").exists()
+                || si_lib.join("torch_cuda_cu.dll").exists();
+            let use_cuda_cpp = si_lib.join("libtorch_cuda_cpp.so").exists()
+                || si_lib.join("torch_cuda_cpp.dll").exists();
+            let use_hip =
+                si_lib.join("libtorch_hip.so").exists() || si_lib.join("torch_hip.dll").exists();
+            println!("cargo:rustc-link-search=native={}", si_lib.display());
 
-        if !target.contains("msvc") && !target.contains("apple") {
-            println!("cargo:rustc-link-lib=gomp");
+            system_info.make(use_cuda, use_hip);
+
+            println!("cargo:rustc-link-lib=static=tch");
+            if use_cuda {
+                system_info.link("torch_cuda")
+            }
+            if use_cuda_cu {
+                system_info.link("torch_cuda_cu")
+            }
+            if use_cuda_cpp {
+                system_info.link("torch_cuda_cpp")
+            }
+            if use_hip {
+                system_info.link("torch_hip")
+            }
+            if cfg!(feature = "python-extension") {
+                system_info.link("torch_python")
+            }
+            if system_info.link_type == LinkType::Static {
+                // TODO: this has only be tried out on the cpu version. Check that it works
+                // with cuda too and maybe just try linking all available files?
+                system_info.link("asmjit");
+                system_info.link("clog");
+                system_info.link("cpuinfo");
+                system_info.link("dnnl");
+                system_info.link("dnnl_graph");
+                system_info.link("fbgemm");
+                system_info.link("gloo");
+                system_info.link("kineto");
+                system_info.link("nnpack");
+                system_info.link("onnx");
+                system_info.link("onnx_proto");
+                system_info.link("protobuf");
+                system_info.link("pthreadpool");
+                system_info.link("pytorch_qnnpack");
+                system_info.link("sleef");
+                system_info.link("tensorpipe");
+                system_info.link("tensorpipe_uv");
+                system_info.link("XNNPACK");
+            }
+            system_info.link("torch_cpu");
+            system_info.link("torch");
+            system_info.link("c10");
+            if use_hip {
+                system_info.link("c10_hip");
+            }
+
+            let target = env::var("TARGET").context("TARGET variable not set")?;
+
+            if !target.contains("msvc") && !target.contains("apple") {
+                println!("cargo:rustc-link-lib=gomp");
+            }
         }
     }
     Ok(())
