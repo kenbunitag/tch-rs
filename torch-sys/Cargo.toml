@@ -26,6 +26,7 @@ zip = "0.6"
 base64 = "0.21.2"
 
 [features]
+default = ["mobile", "ureq"]
 download-libtorch = ["ureq", "serde", "serde_json"]
 doc-only = []
 python-extension = []
