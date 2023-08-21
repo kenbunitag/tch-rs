@@ -13,12 +13,6 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
-#[cfg(feature = "mobile")]
-use base64::engine::general_purpose;
-#[cfg(feature = "mobile")]
-use base64::Engine;
-#[cfg(feature = "mobile")]
-use std::env::var;
 
 const TORCH_VERSION: &str = "2.0.0";
 const PYTHON_PRINT_PYTORCH_DETAILS: &str = r"
@@ -59,6 +53,7 @@ enum Os {
     Macos,
     Windows,
     Ios,
+    Android,
 }
 
 #[allow(dead_code)]
@@ -88,6 +83,10 @@ fn download<P: AsRef<Path>>(source_url: &str, target_file: P) -> anyhow::Result<
 
 #[cfg(feature = "mobile")]
 fn download_from_nexus<P: AsRef<Path>>(source_url: &str, target_file: P) -> anyhow::Result<()> {
+    use base64::engine::general_purpose;
+    use base64::Engine;
+
+
     dbg!("Start Mobile download from Nexus");
 
     let f = fs::File::create(&target_file)?;
@@ -189,13 +188,14 @@ impl SystemInfo {
             "windows" => Os::Windows,
             "macos" => Os::Macos,
             "ios" => Os::Ios,
+            "android" => Os::Android,
             os => anyhow::bail!("unsupported TARGET_OS '{os}'"),
         };
         // Locate the currently active Python binary, similar to:
         // https://github.com/PyO3/maturin/blob/243b8ec91d07113f97a6fe74d9b2dcb88086e0eb/src/target.rs#L547
         let python_interpreter = match os {
             Os::Windows => PathBuf::from("python.exe"),
-            Os::Linux | Os::Ios | Os::Macos => {
+            Os::Linux | Os::Ios | Os::Macos | Os::Android => {
                 if env::var_os("VIRTUAL_ENV").is_some() {
                     PathBuf::from("python")
                 } else {
@@ -298,6 +298,7 @@ impl SystemInfo {
 
     #[cfg(feature = "mobile")]
     fn prepare_pytmobile_dir(_os: Os) -> Result<PathBuf> {
+        use std::env::var;
         let out_dir = var("OUT_DIR").unwrap();
         let target_os = var("CARGO_CFG_TARGET_OS").unwrap();
         let target_arch = var("CARGO_CFG_TARGET_ARCH").unwrap();
@@ -374,6 +375,7 @@ impl SystemInfo {
                 fs::create_dir(&libtorch_dir).unwrap_or_default();
                 let libtorch_url = match os {
                     Os::Ios => panic!("Can not download pytorch for ios - does not exists"),
+                    Os::Android => panic!("Can not download pytorch for Android - does not exists"),
                 Os::Linux => format!(
                     "https://download.pytorch.org/libtorch/{}/libtorch-cxx11-abi-shared-with-deps-{}{}.zip",
                     device, TORCH_VERSION, match device.as_ref() {
@@ -461,7 +463,7 @@ impl SystemInfo {
                     .files(&c_files)
                     .compile("tch");
             }
-            Os::Linux | Os::Macos => {
+            Os::Linux | Os::Macos | Os::Android=> {
                 // Pass the libtorch lib dir to crates that use torch-sys. This will be available
                 // as DEP_TORCH_SYS_LIBTORCH_LIB, see:
                 // https://doc.rust-lang.org/cargo/reference/build-scripts.html#the-links-manifest-key

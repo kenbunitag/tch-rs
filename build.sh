@@ -20,8 +20,8 @@ else
 fi
 unzip -o libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}+cpu.zip
 
-LIBTORCH=$(pwd)/libtorch/
-LD_LIBRARY_PATH=$(pwd)/libtorch/lib/
+export LIBTORCH=$(pwd)/libtorch/
+export LD_LIBRARY_PATH=$(pwd)/libtorch/lib/
 ls $LD_LIBRARY_PATH
 
 cargo fmt --all -- --check \
