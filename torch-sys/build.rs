@@ -13,7 +13,6 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
-
 const TORCH_VERSION: &str = "2.0.0";
 const PYTHON_PRINT_PYTORCH_DETAILS: &str = r"
 import torch
@@ -85,7 +84,6 @@ fn download<P: AsRef<Path>>(source_url: &str, target_file: P) -> anyhow::Result<
 fn download_from_nexus<P: AsRef<Path>>(source_url: &str, target_file: P) -> anyhow::Result<()> {
     use base64::engine::general_purpose;
     use base64::Engine;
-
 
     dbg!("Start Mobile download from Nexus");
 
@@ -463,7 +461,7 @@ impl SystemInfo {
                     .files(&c_files)
                     .compile("tch");
             }
-            Os::Linux | Os::Macos | Os::Android=> {
+            Os::Linux | Os::Macos | Os::Android => {
                 // Pass the libtorch lib dir to crates that use torch-sys. This will be available
                 // as DEP_TORCH_SYS_LIBTORCH_LIB, see:
                 // https://doc.rust-lang.org/cargo/reference/build-scripts.html#the-links-manifest-key
