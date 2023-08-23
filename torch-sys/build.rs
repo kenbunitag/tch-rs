@@ -517,7 +517,7 @@ fn main() -> anyhow::Result<()> {
             let files = fs::read_dir(si_lib).unwrap();
             files
                 .filter_map(Result::ok)
-                .filter(|d| d.path().ends_with(".a"))
+                .filter(|f| f.file_name().to_str().unwrap().ends_with(".a"))
                 .for_each(|f| system_info.link(f.file_name().to_str().unwrap()));
 
             //dbg!("files={}", files);
