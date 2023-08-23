@@ -8,8 +8,6 @@
 
 use anyhow::{Context, Result};
 
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
@@ -519,7 +517,7 @@ fn main() -> anyhow::Result<()> {
             let files = fs::read_dir(si_lib).unwrap();
             files
                 .filter_map(Result::ok)
-                .filter(|d| d.path().extension() == Some(OsStr::from_bytes(b"a")))
+                .filter(|d| d.path().ends_with(".a"))
                 .for_each(|f| system_info.link(f.file_name().to_str().unwrap()));
 
             //dbg!("files={}", files);
