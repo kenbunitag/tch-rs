@@ -78,7 +78,7 @@ fn download<P: AsRef<Path>>(source_url: &str, target_file: P) -> anyhow::Result<
     Ok(())
 }
 
-#[cfg(feature = "mobile")]
+#[cfg(not(feature = "dynamic"))]
 fn download_from_nexus<P: AsRef<Path>>(source_url: &str, target_file: P) -> anyhow::Result<()> {
     use base64::engine::general_purpose;
     use base64::Engine;
@@ -247,7 +247,7 @@ impl SystemInfo {
                 None => anyhow::bail!("no cxx11 abi returned by python {output:?}"),
             }
         } else {
-            let libtorch = match cfg!(feature = "mobile") {
+            let libtorch = match cfg!(not(feature = "dynamic")) {
                 true => Self::prepare_pytmobile_dir(os)?,
                 false => Self::prepare_libtorch_dir(os)?,
             };
@@ -263,9 +263,9 @@ impl SystemInfo {
             env_var_rerun("LIBTORCH_CXX11_ABI").unwrap_or_else(|_| "1".to_owned())
         };
         let libtorch_lib_dir = libtorch_lib_dir.expect("no libtorch lib dir found");
-        let link_type = match cfg!(feature = "mobile") {
-            true => LinkType::Static,
-            false => match env_var_rerun("LIBTORCH_STATIC").as_deref() {
+        let link_type = match cfg!(feature = "dynamic") {
+            false => LinkType::Static,
+            true => match env_var_rerun("LIBTORCH_STATIC").as_deref() {
                 Err(_) | Ok("0") | Ok("false") | Ok("FALSE") => LinkType::Dynamic,
                 Ok(_) => LinkType::Static,
             },
@@ -287,12 +287,12 @@ impl SystemInfo {
         }
     }
 
-    #[cfg(not(feature = "mobile"))]
+    #[cfg(feature = "dynamic")]
     fn prepare_pytmobile_dir(_os: Os) -> Result<PathBuf> {
-        anyhow::bail!("Can not prepare pytmobile-dir without mobile feature");
+        anyhow::bail!("Can not prepare pytmobile-dir with dynamic-linking feature");
     }
 
-    #[cfg(feature = "mobile")]
+    #[cfg(not(feature = "dynamic"))]
     fn prepare_pytmobile_dir(_os: Os) -> Result<PathBuf> {
         use std::env::var;
         let out_dir = var("OUT_DIR").unwrap();
@@ -506,7 +506,7 @@ impl SystemInfo {
 
 fn main() -> anyhow::Result<()> {
     if !cfg!(feature = "doc-only") {
-        if cfg!(feature = "mobile") {
+        if cfg!(not(feature = "dynamic")) {
             let system_info = SystemInfo::new()?;
             let si_lib = &system_info.libtorch_lib_dir;
             println!("cargo:rustc-link-search=native={}", si_lib.display());
