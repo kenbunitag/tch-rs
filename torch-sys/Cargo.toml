@@ -1,6 +1,6 @@
 [package]
 name = "torch-sys"
-version = "2.0.1-rc.2"
+version = "2.0.1-rc.3"
 authors = ["Laurent Mazare <lmazare@gmail.com>"]
 edition = "2021"
 build = "build.rs"
@@ -26,11 +26,11 @@ zip = "0.6"
 base64 = "0.21.2"
 
 [features]
-default= ["mobile","ureq"]
+default= ["ureq"]
 download-libtorch = ["ureq", "serde", "serde_json"]
 doc-only = []
 python-extension = []
-mobile=["ureq"]
+dynamic=["ureq"]
 
 [package.metadata.docs.rs]
 features = [ "doc-only" ]
