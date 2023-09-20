@@ -526,7 +526,6 @@ fn main() -> anyhow::Result<()> {
                 .filter(|f| f.file_name().to_str().unwrap().ends_with(".a"))
                 .for_each(|f| system_info.link(f.file_name().to_str().unwrap()));
 
-
             //dbg!("files={}", files);
         } else {
             let system_info = SystemInfo::new()?;
