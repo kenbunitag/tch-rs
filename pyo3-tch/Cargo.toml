@@ -1,6 +1,6 @@
 [package]
 name = "pyo3-tch"
-version = "2.0.1-rc.4"
+version = "2.0.1-rc.5"
 authors = ["Laurent Mazare <lmazare@gmail.com>"]
 edition = "2021"
 build = "build.rs"
@@ -13,6 +13,6 @@ keywords = ["pytorch", "deep-learning", "machine-learning"]
 license = "MIT/Apache-2.0"
 
 [dependencies]
-tch = { path = "..", features = ["python-extension"], version = "2.0.1-rc.4" }
-torch-sys = { path = "../torch-sys", features = ["python-extension"], version = "2.0.1-rc.4", registry = "kenbun"  }
+tch = { path = "..", features = ["python-extension"], version = "2.0.1-rc.5" }
+torch-sys = { path = "../torch-sys", features = ["python-extension"], version = "2.0.1-rc.5", registry = "kenbun"  }
 pyo3 = { version = "0.18.3", features = ["extension-module"] }

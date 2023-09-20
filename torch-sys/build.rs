@@ -502,6 +502,12 @@ impl SystemInfo {
             }
         }
     }
+
+    fn linkVulkan(&self) {
+        if self.os == Os::Android {
+            println!("cargo:rustc-link-lib=dylib=vulkan");
+        }
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -519,6 +525,7 @@ fn main() -> anyhow::Result<()> {
                 .filter_map(Result::ok)
                 .filter(|f| f.file_name().to_str().unwrap().ends_with(".a"))
                 .for_each(|f| system_info.link(f.file_name().to_str().unwrap()));
+
 
             //dbg!("files={}", files);
         } else {
