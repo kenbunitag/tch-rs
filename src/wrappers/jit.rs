@@ -549,6 +549,7 @@ impl CModule {
     }
 
     /// Switches the module to evaluation mode.
+    /*
     pub fn f_set_eval(&mut self) -> Result<(), TchError> {
         unsafe_torch_err!(atm_eval(self.c_module));
         Ok(())
@@ -569,7 +570,7 @@ impl CModule {
     pub fn set_train(&mut self) {
         self.f_set_train().unwrap();
     }
-
+    */
     /// Moves the module to a different device and converts the kind.
     pub fn to(&mut self, device: Device, kind: Kind, non_blocking: bool) {
         unsafe_torch!(atm_to(self.c_module, device.c_int(), kind.c_int(), non_blocking));
@@ -663,7 +664,7 @@ impl TrainableCModule {
     pub fn save<T: AsRef<std::path::Path>>(&self, module_path: T) -> Result<(), TchError> {
         self.inner.save(module_path)
     }
-
+    /*
     /// Switches the module to training mode.
     pub fn f_set_train(&mut self) -> Result<(), TchError> {
         self.inner.f_set_train()
@@ -683,7 +684,7 @@ impl TrainableCModule {
     pub fn set_eval(&mut self) {
         self.inner.set_eval()
     }
-
+    */
     /// Performs the forward pass for a model on some specified tensor inputs.
     pub fn forward_ts<T: Borrow<Tensor>>(&self, ts: &[T]) -> Result<Tensor, TchError> {
         self.inner.forward_ts(ts)
