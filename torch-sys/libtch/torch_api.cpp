@@ -1138,11 +1138,18 @@ module atm_load_str(char *data, size_t sz) {
   return nullptr;
 }
 
+
 module atm_load_str_on_device(char *data, size_t sz, int device) {
+    PROTECT(
+            std::istringstream stream(std::string(data, sz));
+            return new torch::jit::script::Module(torch::jit::load(stream));
+            )
+    /*
   PROTECT(
     std::istringstream stream(std::string(data, sz));
     return new torch::jit::script::Module(torch::jit::load(stream, device_of_int(device)));
   )
+     */
   return nullptr;
 }
 
@@ -1208,7 +1215,7 @@ ivalue atm_create_class_(module m, char *clz_name, ivalue *ivalues, int nivalues
   )
   return nullptr;
 }
-
+/*
 void atm_eval(module m) {
   PROTECT(
     m->eval();
@@ -1219,7 +1226,7 @@ void atm_train(module m) {
   PROTECT(
     m->train();
   )
-}
+}*/
 
 void atm_free(module m) {
   delete(m);

@@ -511,6 +511,10 @@ impl SystemInfo {
 }
 
 fn main() -> anyhow::Result<()> {
+    for (key, value) in env::vars() {
+        dbg!("{}: {}", key, value);
+    }
+
     if !cfg!(feature = "doc-only") {
         if cfg!(not(feature = "dynamic")) {
             let system_info = SystemInfo::new()?;
